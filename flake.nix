@@ -36,11 +36,11 @@
 
           # Additional tools
           git
-        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs.darwin.apple_sdk.frameworks; [
           # macOS-specific dependencies
-          pkgs.darwin.apple_sdk.frameworks.Security
-          pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
-        ];
+          Security
+          SystemConfiguration
+        ]);
 
       in
       {
