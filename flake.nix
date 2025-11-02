@@ -3,44 +3,32 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {
-          inherit system overlays;
-        };
-
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" ];
+          inherit system;
+          config = {
+            allowUnfree = true;
+          };
         };
 
         buildInputs = with pkgs; [
           # Rust toolchain
-          rustToolchain
+          rustc
+          cargo
+          rust-analyzer
+          clippy
 
           # Build dependencies
           pkg-config
-          openssl
-
-          # Git library dependencies
-          libgit2
-
-          # Development tools
-          cargo-watch
-          cargo-edit
 
           # Additional tools
           git
-        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs.darwin.apple_sdk.frameworks; [
-          # macOS-specific dependencies
-          Security
-          SystemConfiguration
-        ]);
+        ];
 
       in
       {

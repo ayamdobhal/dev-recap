@@ -1,0 +1,26 @@
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dev-recap specific
+.dev-recap-cache/
+
+# Nix
+result
+result-*
+
+# direnv
+.direnv/
+.envrc.cache
