@@ -17,6 +17,7 @@ pub struct Repository {
     /// Remote URL (if available)
     pub remote_url: Option<String>,
     /// GitHub repository info (if applicable)
+    #[allow(dead_code)]
     pub github_info: Option<GitHubRepo>,
     /// Filtered commits
     pub commits: Vec<Commit>,
@@ -35,11 +36,13 @@ pub struct GitHubRepo {
 
 impl GitHubRepo {
     /// Create a GitHub PR URL
+    #[allow(dead_code)]
     pub fn pr_url(&self, pr_number: u32) -> String {
         format!("https://github.com/{}/{}/pull/{}", self.owner, self.repo, pr_number)
     }
 
     /// Create a GitHub commit URL
+    #[allow(dead_code)]
     pub fn commit_url(&self, hash: &str) -> String {
         format!("https://github.com/{}/{}/commit/{}", self.owner, self.repo, hash)
     }
@@ -53,14 +56,17 @@ pub struct Commit {
     /// Short commit hash (7 characters)
     pub short_hash: String,
     /// Commit author
+    #[allow(dead_code)]
     pub author: Author,
     /// Commit timestamp
     pub timestamp: DateTime<Utc>,
     /// Full commit message
+    #[allow(dead_code)]
     pub message: String,
     /// First line of commit message
     pub summary: String,
     /// Rest of commit message (if any)
+    #[allow(dead_code)]
     pub body: Option<String>,
     /// List of files changed
     pub files_changed: Vec<String>,
@@ -74,6 +80,7 @@ pub struct Commit {
 
 impl Commit {
     /// Create a short representation of the commit
+    #[allow(dead_code)]
     pub fn short_desc(&self) -> String {
         format!("{} - {}", self.short_hash, self.summary)
     }
@@ -83,6 +90,7 @@ impl Commit {
 #[derive(Debug, Clone)]
 pub struct Author {
     /// Author name
+    #[allow(dead_code)]
     pub name: String,
     /// Author email
     pub email: String,
@@ -155,6 +163,7 @@ impl Timespan {
     }
 
     /// Create a timespan from specific dates
+    #[allow(dead_code)]
     pub fn from_dates(start: DateTime<Utc>, end: DateTime<Utc>) -> Self {
         Self { start, end }
     }

@@ -125,8 +125,8 @@ impl Parser {
         commit: &git2::Commit,
     ) -> Result<(Vec<String>, u32, u32)> {
         let mut files_changed = Vec::new();
-        let mut insertions = 0;
-        let mut deletions = 0;
+        let insertions;
+        let deletions;
 
         // Get the tree for this commit
         let tree = commit.tree()?;

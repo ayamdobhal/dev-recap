@@ -83,6 +83,7 @@ impl SummaryCache {
     }
 
     /// Clear all cache entries
+    #[allow(dead_code)]
     pub fn clear(&self) -> Result<()> {
         self.db.clear()?;
         self.db.flush()?;
@@ -101,6 +102,7 @@ impl SummaryCache {
     }
 
     /// Remove expired entries
+    #[allow(dead_code)]
     pub fn cleanup_expired(&self) -> Result<usize> {
         let mut removed = 0;
 

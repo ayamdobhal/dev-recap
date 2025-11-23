@@ -104,7 +104,6 @@ pub fn generate_summary_prompt(repo: &Repository) -> String {
 
 /// Parse Claude's response into structured data
 pub fn parse_response(response: &str) -> (String, Vec<String>, Vec<String>) {
-    let mut summary = String::new();
     let mut achievements = Vec::new();
     let mut tips = Vec::new();
 
@@ -150,7 +149,7 @@ pub fn parse_response(response: &str) -> (String, Vec<String>, Vec<String>) {
         }
     }
 
-    summary = summary_lines.join(" ");
+    let summary = summary_lines.join(" ");
 
     (summary, achievements, tips)
 }
@@ -158,7 +157,7 @@ pub fn parse_response(response: &str) -> (String, Vec<String>, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{Author, Commit, RepoStats, Timespan};
+    use crate::git::{Author, Commit, RepoStats};
     use chrono::Utc;
     use std::path::PathBuf;
 
@@ -222,7 +221,7 @@ It has multiple lines.
 3. Tip number three
 "#;
 
-        let (summary, achievements, tips) = parse_response(response);
+        let (_summary, achievements, tips) = parse_response(response);
 
         assert!(summary.contains("test summary"));
         assert_eq!(achievements.len(), 3);
@@ -245,7 +244,7 @@ Test summary
 1. First tip
 "#;
 
-        let (summary, achievements, tips) = parse_response(response);
+        let (_summary, achievements, tips) = parse_response(response);
 
         assert_eq!(achievements.len(), 2);
         assert_eq!(achievements[0], "Achievement with asterisk");

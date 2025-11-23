@@ -9,8 +9,17 @@ pub struct Config {
     /// Default author email for filtering commits
     pub default_author_email: Option<String>,
 
-    /// Claude API key
-    pub claude_api_key: String,
+    /// Claude API key (can be overridden by ANTHROPIC_AUTH_TOKEN env var)
+    #[serde(default)]
+    pub claude_api_key: Option<String>,
+
+    /// Claude API base URL (can be overridden by ANTHROPIC_BASE_URL env var)
+    /// Should be the base URL without /v1/messages (e.g., "https://api.anthropic.com" or "http://localhost:4000")
+    /// The /v1/messages endpoint will be appended automatically
+    pub claude_api_base_url: Option<String>,
+
+    /// Claude model to use (optional, defaults to claude-sonnet-4-5-20250929)
+    pub claude_model: Option<String>,
 
     /// Default timespan in days (default: 14 days / 2 weeks)
     #[serde(default = "default_timespan")]
@@ -52,9 +61,47 @@ impl Config {
         }
 
         let contents = fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&contents)?;
+        let mut config: Config = toml::from_str(&contents)?;
+
+        // Apply environment variable overrides (priority: env > config file)
+        config.apply_env_overrides();
+
         config.validate()?;
         Ok(config)
+    }
+
+    /// Apply environment variable overrides
+    fn apply_env_overrides(&mut self) {
+        use std::env;
+
+        // ANTHROPIC_AUTH_TOKEN takes precedence over config file
+        if let Ok(api_key) = env::var("ANTHROPIC_AUTH_TOKEN") {
+            self.claude_api_key = Some(api_key);
+        }
+
+        // ANTHROPIC_BASE_URL takes precedence over config file
+        if let Ok(base_url) = env::var("ANTHROPIC_BASE_URL") {
+            self.claude_api_base_url = Some(base_url);
+        }
+    }
+
+    /// Get the effective API key (from env or config)
+    pub fn get_api_key(&self) -> Result<String> {
+        self.claude_api_key
+            .clone()
+            .ok_or_else(|| DevRecapError::MissingConfig(
+                "claude_api_key is required (set ANTHROPIC_AUTH_TOKEN env var or add to config file)".to_string()
+            ))
+    }
+
+    /// Get the effective base URL (from env, config, or default)
+    pub fn get_base_url(&self) -> Option<String> {
+        self.claude_api_base_url.clone()
+    }
+
+    /// Get the effective model (from config or default)
+    pub fn get_model(&self) -> Option<String> {
+        self.claude_model.clone()
     }
 
     /// Get the default config file path
@@ -89,16 +136,14 @@ impl Config {
 
     /// Validate the configuration
     pub fn validate(&self) -> Result<()> {
-        if self.claude_api_key.is_empty() {
-            return Err(DevRecapError::MissingConfig(
-                "claude_api_key is required".to_string(),
-            ));
-        }
-
-        if !self.claude_api_key.starts_with("sk-ant-") {
-            return Err(DevRecapError::config(
-                "Invalid Claude API key format (should start with 'sk-ant-')",
-            ));
+        // Validate API key if present (it's now optional in config, can come from env)
+        if let Some(ref api_key) = self.claude_api_key {
+            if api_key.is_empty() {
+                return Err(DevRecapError::MissingConfig(
+                    "claude_api_key cannot be empty".to_string(),
+                ));
+            }
+            // No longer validate key format since custom base URLs may use different auth schemes
         }
 
         if self.default_timespan_days == 0 {
@@ -113,15 +158,24 @@ impl Config {
     }
 
     /// Load config from file, or create default if it doesn't exist
+    /// Always applies environment variable overrides
     pub fn load_or_create_default() -> Result<Self> {
-        match Self::load() {
-            Ok(config) => Ok(config),
+        let mut config = match Self::load() {
+            Ok(config) => config,
             Err(DevRecapError::Config(_)) => {
                 eprintln!("Config file not found. Creating default config...");
-                Self::create_default()
+                let mut cfg = Self::create_default()?;
+                // Apply env overrides even for newly created config
+                cfg.apply_env_overrides();
+                return Ok(cfg);
             }
-            Err(e) => Err(e),
-        }
+            Err(e) => return Err(e),
+        };
+
+        // Env vars are already applied in load_from, but this ensures
+        // they're applied even if config was loaded differently
+        config.apply_env_overrides();
+        Ok(config)
     }
 }
 
@@ -129,7 +183,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             default_author_email: None,
-            claude_api_key: String::from("sk-ant-YOUR_API_KEY_HERE"),
+            claude_api_key: None, // Will be read from env or config file
+            claude_api_base_url: None,
+            claude_model: None,
             default_timespan_days: default_timespan(),
             exclude_patterns: default_exclude_patterns(),
             max_scan_depth: None,
@@ -182,31 +238,62 @@ mod tests {
     }
 
     #[test]
-    fn test_config_validation_missing_api_key() {
+    fn test_config_validation_empty_api_key() {
         let mut config = Config::default();
-        config.claude_api_key = String::new();
+        config.claude_api_key = Some(String::new());
         assert!(config.validate().is_err());
     }
 
     #[test]
-    fn test_config_validation_invalid_api_key() {
+    fn test_config_validation_any_key_format() {
+        // Any non-empty key format is valid (for custom base URLs)
         let mut config = Config::default();
-        config.claude_api_key = String::from("invalid-key");
-        assert!(config.validate().is_err());
-    }
+        config.claude_api_key = Some(String::from("custom-auth-token-123"));
+        assert!(config.validate().is_ok());
 
-    #[test]
-    fn test_config_validation_valid() {
-        let mut config = Config::default();
-        config.claude_api_key = String::from("sk-ant-valid-key-123");
+        config.claude_api_key = Some(String::from("sk-ant-valid-key-123"));
+        assert!(config.validate().is_ok());
+
+        config.claude_api_key = Some(String::from("bearer-token"));
         assert!(config.validate().is_ok());
     }
 
     #[test]
-    fn test_config_serialization() {
+    fn test_config_validation_no_api_key() {
+        let mut config = Config::default();
+        config.claude_api_key = None;
+        // Should be valid - API key is optional in config (can come from env)
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_get_api_key_from_config() {
+        let mut config = Config::default();
+        config.claude_api_key = Some("sk-ant-test-key".to_string());
+        assert!(config.get_api_key().is_ok());
+        assert_eq!(config.get_api_key().unwrap(), "sk-ant-test-key");
+    }
+
+    #[test]
+    fn test_get_api_key_missing() {
         let config = Config::default();
+        assert!(config.get_api_key().is_err());
+    }
+
+    #[test]
+    fn test_config_serialization() {
+        let mut config = Config::default();
+        config.claude_api_key = Some("sk-ant-test".to_string());
         let toml_str = toml::to_string(&config).unwrap();
         assert!(toml_str.contains("claude_api_key"));
+        assert!(toml_str.contains("default_timespan_days"));
+    }
+
+    #[test]
+    fn test_config_serialization_no_api_key() {
+        let config = Config::default();
+        let toml_str = toml::to_string(&config).unwrap();
+        // When claude_api_key is None, it won't appear in serialized output
         assert!(toml_str.contains("default_timespan_days"));
     }
 
@@ -218,7 +305,7 @@ mod tests {
             cache_enabled = false
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.claude_api_key, "sk-ant-test-key");
+        assert_eq!(config.claude_api_key, Some("sk-ant-test-key".to_string()));
         assert_eq!(config.default_timespan_days, 30);
         assert!(!config.cache_enabled);
     }

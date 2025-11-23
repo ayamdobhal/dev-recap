@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 /// Orchestrator for coordinating the analysis workflow
 pub struct Orchestrator {
+    #[allow(dead_code)]
     config: Config,
     scanner: Scanner,
     cache: Option<SummaryCache>,
@@ -32,7 +33,11 @@ impl Orchestrator {
             None
         };
 
-        let claude_client = ClaudeClient::new(config.claude_api_key.clone())?;
+        let claude_client = ClaudeClient::with_base_url(
+            config.get_api_key()?,
+            config.get_base_url(),
+            config.get_model(),
+        )?;
 
         Ok(Self {
             config,
@@ -137,6 +142,7 @@ impl Orchestrator {
     }
 
     /// Analyze multiple repositories
+    #[allow(dead_code)]
     pub async fn analyze_repositories(
         &self,
         repo_paths: &[PathBuf],
@@ -174,6 +180,7 @@ impl Orchestrator {
     }
 
     /// Get a reference to the config
+    #[allow(dead_code)]
     pub fn config(&self) -> &Config {
         &self.config
     }
@@ -189,7 +196,9 @@ mod tests {
     fn create_test_config() -> Config {
         Config {
             default_author_email: Some("test@example.com".to_string()),
-            claude_api_key: "sk-ant-test-key".to_string(),
+            claude_api_key: Some("sk-ant-test-key".to_string()),
+            claude_api_base_url: None,
+            claude_model: None,
             default_timespan_days: 14,
             exclude_patterns: vec!["node_modules".to_string()],
             max_scan_depth: None,

@@ -42,6 +42,7 @@ pub enum DevRecapError {
 
     /// Repository not found
     #[error("Repository not found at path: {0}")]
+    #[allow(dead_code)]
     RepositoryNotFound(PathBuf),
 
     /// No commits found
@@ -50,6 +51,7 @@ pub enum DevRecapError {
 
     /// Invalid timespan
     #[error("Invalid timespan: {0}")]
+    #[allow(dead_code)]
     InvalidTimespan(String),
 
     /// Missing configuration
@@ -62,6 +64,7 @@ pub enum DevRecapError {
 
     /// Generic error
     #[error("{0}")]
+    #[allow(dead_code)]
     Other(String),
 }
 
@@ -80,6 +83,7 @@ impl DevRecapError {
     }
 
     /// Create a new generic error
+    #[allow(dead_code)]
     pub fn other<S: Into<String>>(msg: S) -> Self {
         Self::Other(msg.into())
     }

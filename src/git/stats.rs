@@ -6,6 +6,7 @@ use crate::git::{Commit, RepoStats};
 use std::collections::HashMap;
 
 /// Calculate commit frequency over time
+#[allow(dead_code)]
 pub fn calculate_commit_frequency(commits: &[Commit]) -> HashMap<String, u32> {
     let mut frequency = HashMap::new();
 
@@ -18,6 +19,7 @@ pub fn calculate_commit_frequency(commits: &[Commit]) -> HashMap<String, u32> {
 }
 
 /// Find the most active day
+#[allow(dead_code)]
 pub fn find_most_active_day(stats: &RepoStats) -> Option<(String, u32)> {
     stats
         .commit_frequency
@@ -27,6 +29,7 @@ pub fn find_most_active_day(stats: &RepoStats) -> Option<(String, u32)> {
 }
 
 /// Calculate average commits per day
+#[allow(dead_code)]
 pub fn average_commits_per_day(stats: &RepoStats) -> f64 {
     if stats.commit_frequency.is_empty() {
         return 0.0;
@@ -36,6 +39,7 @@ pub fn average_commits_per_day(stats: &RepoStats) -> f64 {
 }
 
 /// Get a summary of file changes
+#[allow(dead_code)]
 pub fn summarize_file_changes(commits: &[Commit]) -> HashMap<String, u32> {
     let mut file_changes: HashMap<String, u32> = HashMap::new();
 
@@ -49,6 +53,7 @@ pub fn summarize_file_changes(commits: &[Commit]) -> HashMap<String, u32> {
 }
 
 /// Find the most frequently changed files
+#[allow(dead_code)]
 pub fn most_changed_files(commits: &[Commit], limit: usize) -> Vec<(String, u32)> {
     let file_changes = summarize_file_changes(commits);
 
