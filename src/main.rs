@@ -1,3 +1,4 @@
+mod ai;
 mod cli;
 mod config;
 mod error;
@@ -84,8 +85,15 @@ fn handle_command(command: &Commands) -> Result<()> {
                 println!("Cache directory does not exist");
             } else {
                 println!("Cache directory: {}", cache_dir.display());
-                // TODO: Implement cache statistics
-                println!("Cache statistics not yet implemented");
+
+                // Try to load cache and show stats
+                if let Ok(cache) = ai::cache::SummaryCache::new(&cache_dir, 0) {
+                    let stats = cache.stats();
+                    println!("Total entries: {}", stats.total_entries);
+                    println!("Database size: {}", stats.format_size());
+                } else {
+                    println!("Could not open cache database");
+                }
             }
         }
     }
