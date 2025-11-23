@@ -3,13 +3,18 @@ mod cli;
 mod config;
 mod error;
 mod git;
+mod orchestrator;
 
 use clap::Parser;
 use cli::{Cli, Commands};
 use config::Config;
 use error::Result;
+use git::Timespan;
+use orchestrator::Orchestrator;
+use std::env;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Parse CLI arguments
     let cli = Cli::parse();
 
@@ -34,13 +39,83 @@ fn main() -> Result<()> {
     // Apply CLI overrides to config
     let config = apply_cli_overrides(config, &cli);
 
+    // Run main analysis
+    run_analysis(config, &cli).await
+}
+
+async fn run_analysis(config: Config, cli: &Cli) -> Result<()> {
     println!("dev-recap v{}", env!("CARGO_PKG_VERSION"));
     println!("AI-powered git commit summarizer for Demo Day presentations\n");
-    println!("Config loaded from: {}", Config::default_config_path()?.display());
-    println!("Author: {:?}", config.default_author_email);
-    println!("Timespan: {} days", config.default_timespan_days);
-    println!("Cache enabled: {}", config.cache_enabled);
-    println!("\nReady to start implementation...");
+
+    // Determine scan path
+    let scan_path = cli
+        .path
+        .as_ref()
+        .map(|p| p.clone())
+        .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
+
+    // Determine author email (clone to avoid borrow issues)
+    let author_email = cli
+        .author
+        .clone()
+        .or_else(|| config.default_author_email.clone());
+
+    if author_email.is_none() {
+        eprintln!("Error: No author email specified.");
+        eprintln!("Provide via --author flag or set default_author_email in config.");
+        std::process::exit(1);
+    }
+
+    let author_email_str = author_email.as_ref().unwrap();
+
+    // Determine timespan
+    let timespan = if let Some(days) = cli.days {
+        Timespan::days_back(days)
+    } else {
+        Timespan::days_back(config.default_timespan_days)
+    };
+
+    println!("Scanning: {}", scan_path.display());
+    println!("Author: {}", author_email_str);
+    println!("Timespan: {} days back\n", config.default_timespan_days);
+
+    // Create orchestrator
+    let orchestrator = Orchestrator::new(config)?;
+
+    // Scan for repositories
+    println!("🔍 Scanning for git repositories...");
+    let repos = orchestrator.scan_repositories(&scan_path)?;
+
+    if repos.is_empty() {
+        println!("No git repositories found.");
+        return Ok(());
+    }
+
+    println!("Found {} repositories\n", repos.len());
+
+    // Analyze repositories
+    println!("📊 Analyzing commits...");
+    let results = orchestrator
+        .analyze_repositories(&repos, Some(author_email_str.as_str()), &timespan)
+        .await;
+
+    // Display results
+    println!("\n{}\n", "=".repeat(60));
+    for (repo, summary_result) in results {
+        println!("Repository: {}", repo.name);
+        println!("Path: {}", repo.path.display());
+
+        match summary_result {
+            Ok(summary) => {
+                println!("\n{}", summary.to_markdown());
+            }
+            Err(e) => {
+                println!("\n❌ Error: {}", e);
+            }
+        }
+
+        println!("\n{}\n", "-".repeat(60));
+    }
 
     Ok(())
 }
