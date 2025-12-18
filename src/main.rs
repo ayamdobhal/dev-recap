@@ -69,36 +69,81 @@ async fn run_analysis(config: Config, cli: &Cli) -> Result<()> {
             .unwrap_or(default_path)
     };
 
-    // Prompt for author email
-    let author_email = if let Some(ref email) = cli.author {
-        email.clone()
-    } else if let Some(ref default_email) = config.default_author_email {
-        prompt_with_default("Author email", default_email)?
-    } else {
-        // Try to get from git config
-        let git_email = get_git_user_email();
-        if let Some(ref email) = git_email {
-            prompt_with_default("Author email", email)?
+    // Prompt for author email(s)
+    let author_emails = if cli.team {
+        // Team mode: get multiple authors
+        if let Some(ref authors) = cli.authors {
+            authors.clone()
         } else {
-            prompt_required("Author email")?
+            // Interactive mode: prompt for authors
+            let input = prompt_required("Author emails (comma-separated)")?;
+            input.split(',').map(|s| s.trim().to_string()).collect()
         }
+    } else {
+        // Single author mode
+        let author_email = if let Some(ref email) = cli.author {
+            email.clone()
+        } else if let Some(ref default_email) = config.default_author_email {
+            prompt_with_default("Author email", default_email)?
+        } else {
+            // Try to get from git config
+            let git_email = get_git_user_email();
+            if let Some(ref email) = git_email {
+                prompt_with_default("Author email", email)?
+            } else {
+                prompt_required("Author email")?
+            }
+        };
+        vec![author_email]
     };
 
     // Prompt for timespan
-    let days = if let Some(d) = cli.days {
-        d
-    } else {
-        let default_days = config.default_timespan_days;
-        let input = prompt_with_default("Days back", &default_days.to_string())?;
-        input.parse().unwrap_or(default_days)
-    };
+    let (timespan, timespan_desc) = if cli.since.is_some() || cli.until.is_some() {
+        // Use --since/--until for date range
+        let since_str = cli.since.as_deref().unwrap_or("1970-01-01");
+        let until_str = cli.until.as_deref().unwrap_or_else(|| {
+            // Default to today
+            chrono::Utc::now().format("%Y-%m-%d").to_string().leak()
+        });
 
-    let timespan = Timespan::days_back(days);
+        let start = chrono::NaiveDate::parse_from_str(since_str, "%Y-%m-%d")
+            .map_err(|_| error::DevRecapError::Other(format!("Invalid date format for --since: {}", since_str)))?
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| error::DevRecapError::Other("Invalid time".to_string()))?
+            .and_utc();
+
+        let end = chrono::NaiveDate::parse_from_str(until_str, "%Y-%m-%d")
+            .map_err(|_| error::DevRecapError::Other(format!("Invalid date format for --until: {}", until_str)))?
+            .and_hms_opt(23, 59, 59)
+            .ok_or_else(|| error::DevRecapError::Other("Invalid time".to_string()))?
+            .and_utc();
+
+        let timespan = Timespan::from_dates(start, end);
+        let desc = format!("{} to {}", since_str, until_str);
+        (timespan, desc)
+    } else {
+        // Use --days for days back
+        let days = if let Some(d) = cli.days {
+            d
+        } else {
+            let default_days = config.default_timespan_days;
+            let input = prompt_with_default("Days back", &default_days.to_string())?;
+            input.parse().unwrap_or(default_days)
+        };
+
+        let timespan = Timespan::days_back(days);
+        let desc = format!("{} days back", days);
+        (timespan, desc)
+    };
 
     println!("\n{}", "=".repeat(60));
     println!("Scanning: {}", scan_path.display());
-    println!("Author: {}", author_email);
-    println!("Timespan: {} days back", days);
+    if author_emails.len() == 1 {
+        println!("Author: {}", author_emails[0]);
+    } else {
+        println!("Authors: {}", author_emails.join(", "));
+    }
+    println!("Timespan: {}", timespan_desc);
     println!("{}\n", "=".repeat(60));
 
     // Create orchestrator
@@ -145,13 +190,31 @@ async fn run_analysis(config: Config, cli: &Cli) -> Result<()> {
         progress.set_message(format!("Analyzing {}", repo_name));
 
         // Analyze single repository
-        let repo_result = orchestrator.analyze_repository(repo_path, Some(&author_email), &timespan);
+        // In team mode, analyze all commits; in single mode, filter by author
+        let author_filter = if cli.team {
+            None // Team mode: get all commits
+        } else {
+            Some(author_emails[0].as_str()) // Single author mode
+        };
+        let repo_result = orchestrator.analyze_repository(repo_path, author_filter, &timespan);
 
         match repo_result {
             Ok(repo) => {
-                // Generate summary
-                let summary_result = orchestrator.generate_summary(&repo).await;
-                results.push((repo, summary_result));
+                if cli.dry_run {
+                    // Dry run: skip API call, create dummy success result
+                    use crate::ai::Summary;
+                    let summary = Summary::new(
+                        repo.name.clone(),
+                        format!("[Dry run] Would analyze {} commits", repo.stats.total_commits),
+                        vec![format!("{} files changed", repo.stats.total_files_changed)],
+                        vec![],
+                    );
+                    results.push((repo, Ok(summary)));
+                } else {
+                    // Generate summary
+                    let summary_result = orchestrator.generate_summary(&repo).await;
+                    results.push((repo, summary_result));
+                }
             }
             Err(e) => {
                 // Create a minimal repository for error reporting
@@ -170,19 +233,46 @@ async fn run_analysis(config: Config, cli: &Cli) -> Result<()> {
         progress.inc(1);
     }
 
-    progress.finish_with_message("Analysis complete");
+    progress.finish_with_message(if cli.dry_run {
+        "Dry run complete"
+    } else {
+        "Analysis complete"
+    });
 
     // Build markdown output
     let mut markdown_output = String::new();
     markdown_output.push_str(&format!("# Dev Recap\n\n"));
     markdown_output.push_str(&format!("**Scan Path:** {}\n", scan_path.display()));
-    markdown_output.push_str(&format!("**Author:** {}\n", author_email));
-    markdown_output.push_str(&format!("**Timespan:** {} days back\n\n", days));
+    if author_emails.len() == 1 {
+        markdown_output.push_str(&format!("**Author:** {}\n", author_emails[0]));
+    } else {
+        markdown_output.push_str(&format!("**Authors:** {}\n", author_emails.join(", ")));
+    }
+    markdown_output.push_str(&format!("**Timespan:** {}\n\n", timespan_desc));
     markdown_output.push_str(&format!("---\n\n"));
 
     for (repo, summary_result) in &results {
         markdown_output.push_str(&format!("## Repository: {}\n\n", repo.name));
         markdown_output.push_str(&format!("**Path:** {}\n\n", repo.path.display()));
+
+        // Add verbose information if requested
+        if cli.verbose >= 1 && !repo.commits.is_empty() {
+            markdown_output.push_str(&format!("**Stats:**\n"));
+            markdown_output.push_str(&format!("- Total commits: {}\n", repo.stats.total_commits));
+            markdown_output.push_str(&format!("- Files changed: {}\n", repo.stats.total_files_changed));
+            markdown_output.push_str(&format!("- Insertions: +{}\n", repo.stats.total_insertions));
+            markdown_output.push_str(&format!("- Deletions: -{}\n", repo.stats.total_deletions));
+            markdown_output.push_str(&format!("- Net change: {}\n\n", repo.stats.net_lines_changed()));
+        }
+
+        // Add commit list if verbose >= 2
+        if cli.verbose >= 2 && !repo.commits.is_empty() {
+            markdown_output.push_str(&format!("**Commits:**\n"));
+            for commit in &repo.commits {
+                markdown_output.push_str(&format!("- `{}` {}\n", commit.short_hash, commit.summary));
+            }
+            markdown_output.push_str("\n");
+        }
 
         match summary_result {
             Ok(summary) => {
@@ -207,6 +297,24 @@ async fn run_analysis(config: Config, cli: &Cli) -> Result<()> {
         for (repo, summary_result) in results {
             println!("Repository: {}", repo.name);
             println!("Path: {}", repo.path.display());
+
+            // Add verbose information if requested
+            if cli.verbose >= 1 && !repo.commits.is_empty() {
+                println!("\nStats:");
+                println!("  Total commits: {}", repo.stats.total_commits);
+                println!("  Files changed: {}", repo.stats.total_files_changed);
+                println!("  Insertions: +{}", repo.stats.total_insertions);
+                println!("  Deletions: -{}", repo.stats.total_deletions);
+                println!("  Net change: {}", repo.stats.net_lines_changed());
+            }
+
+            // Add commit list if verbose >= 2
+            if cli.verbose >= 2 && !repo.commits.is_empty() {
+                println!("\nCommits:");
+                for commit in &repo.commits {
+                    println!("  - {} {}", commit.short_hash, commit.summary);
+                }
+            }
 
             match summary_result {
                 Ok(summary) => {
