@@ -221,7 +221,7 @@ It has multiple lines.
 3. Tip number three
 "#;
 
-        let (_summary, achievements, tips) = parse_response(response);
+        let (summary, achievements, tips) = parse_response(response);
 
         assert!(summary.contains("test summary"));
         assert_eq!(achievements.len(), 3);

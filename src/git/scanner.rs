@@ -37,10 +37,10 @@ impl Scanner {
         }
 
         // Check if this is a git repository
-        if self.is_git_repository(path) {
+        let is_repo = self.is_git_repository(path);
+        if is_repo {
             repos.push(path.to_path_buf());
-            // Don't scan inside git repositories
-            return Ok(());
+            // Continue scanning inside to find submodules
         }
 
         // Read directory entries
@@ -209,5 +209,26 @@ mod tests {
         assert!(scanner.should_exclude("node_modules"));
         assert!(scanner.should_exclude("target"));
         assert!(!scanner.should_exclude("src"));
+    }
+
+    #[test]
+    fn test_scanner_finds_submodules() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create main repo with a submodule inside
+        let main_repo = temp_dir.path().join("main-repo");
+        let submodule = main_repo.join("submodules").join("sub-repo");
+        fs::create_dir_all(&main_repo).unwrap();
+        fs::create_dir_all(&submodule).unwrap();
+        create_test_git_repo(&main_repo).unwrap();
+        create_test_git_repo(&submodule).unwrap();
+
+        let scanner = Scanner::new(vec![], None);
+        let repos = scanner.scan(temp_dir.path()).unwrap();
+
+        // Should find both repos
+        assert_eq!(repos.len(), 2);
+        assert!(repos.contains(&main_repo));
+        assert!(repos.contains(&submodule));
     }
 }
