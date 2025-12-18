@@ -172,22 +172,53 @@ async fn run_analysis(config: Config, cli: &Cli) -> Result<()> {
 
     progress.finish_with_message("Analysis complete");
 
-    // Display results
-    println!("\n{}\n", "=".repeat(60));
-    for (repo, summary_result) in results {
-        println!("Repository: {}", repo.name);
-        println!("Path: {}", repo.path.display());
+    // Build markdown output
+    let mut markdown_output = String::new();
+    markdown_output.push_str(&format!("# Dev Recap\n\n"));
+    markdown_output.push_str(&format!("**Scan Path:** {}\n", scan_path.display()));
+    markdown_output.push_str(&format!("**Author:** {}\n", author_email));
+    markdown_output.push_str(&format!("**Timespan:** {} days back\n\n", days));
+    markdown_output.push_str(&format!("---\n\n"));
+
+    for (repo, summary_result) in &results {
+        markdown_output.push_str(&format!("## Repository: {}\n\n", repo.name));
+        markdown_output.push_str(&format!("**Path:** {}\n\n", repo.path.display()));
 
         match summary_result {
             Ok(summary) => {
-                println!("\n{}", summary.to_markdown());
+                markdown_output.push_str(&summary.to_markdown());
+                markdown_output.push_str("\n\n");
             }
             Err(e) => {
-                println!("\n❌ Error: {}", e);
+                markdown_output.push_str(&format!("**Error:** {}\n\n", e));
             }
         }
 
-        println!("\n{}\n", "-".repeat(60));
+        markdown_output.push_str("---\n\n");
+    }
+
+    // Write to file if --output is specified
+    if let Some(output_path) = &cli.output {
+        std::fs::write(output_path, &markdown_output)?;
+        println!("\n✓ Results written to: {}", output_path.display());
+    } else {
+        // Display results to stdout
+        println!("\n{}\n", "=".repeat(60));
+        for (repo, summary_result) in results {
+            println!("Repository: {}", repo.name);
+            println!("Path: {}", repo.path.display());
+
+            match summary_result {
+                Ok(summary) => {
+                    println!("\n{}", summary.to_markdown());
+                }
+                Err(e) => {
+                    println!("\n❌ Error: {}", e);
+                }
+            }
+
+            println!("\n{}\n", "-".repeat(60));
+        }
     }
 
     Ok(())
